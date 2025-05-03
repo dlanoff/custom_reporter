@@ -161,7 +161,7 @@ def sample_layout():
             {
                 "type": "image",
                 "position": 1,
-                "config": {"data": "https://via.placeholder.com/300x100"},
+                "config": {"data": "/img1.png"},
             },
             {
                 "type": "table",
