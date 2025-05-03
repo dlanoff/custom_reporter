@@ -92,28 +92,38 @@ function App() {
   const submitLayout = async () => {
     const payload = {
       name: layoutName,
-      components: components.map((c, i) => ({
-        ...c,
-        position: i, // <-- critical: overwrite position before sending
-      })),
+      components: components.map((c, i) => ({ ...c, position: i })),
     };
 
-    const response = await fetch(
-      `http://localhost:8000/layouts/${layoutName}`,
-      {
-        method: editMode ? "PUT" : "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-      }
-    );
+    const url = editMode
+      ? `http://localhost:8000/layouts/${layoutName}`
+      : `http://localhost:8000/layouts/`;
+
+    const response = await fetch(url, {
+      method: editMode ? "PUT" : "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    });
 
     const data = await response.json();
     setMessage(response.ok ? "Layout saved!" : `Error: ${data.detail}`);
+  };
+  const randomizeLayout = async () => {
+    const res = await fetch("http://localhost:8000/sample-layout");
+    const layout = await res.json();
+    setLayoutName(layout.name);
+    setComponents(layout.components);
+    setEditMode(false);
   };
 
   return (
     <div style={{ padding: "1rem" }}>
       <h1>Report Builder</h1>
+      {layoutName && (
+        <h2 style={{ marginTop: "0.5rem", color: "#555" }}>
+          Editing: <span style={{ color: "#000" }}>{layoutName}</span>
+        </h2>
+      )}
       <h4>Saved Layouts</h4>
       <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid #ccc", padding: "0.5rem" }}>
         {availableLayouts.map((name, i) => (
@@ -252,7 +262,8 @@ function App() {
         Add Graph Block
       </button>
 
-      <button onClick={submitLayout}>Submit Layout</button>
+      <button onClick={submitLayout}>Submit/Save Layout</button>
+      <button onClick={randomizeLayout}>Load Random Sample Data</button>
 
       <p style={{ color: "green" }}>{message}</p>
 
@@ -354,12 +365,44 @@ function App() {
                     });
                   }}
                 />
+
+                <div style={{ width: 300, height: 200, marginTop: "1rem" }}>
+                  {comp.config.type === "bar" && (
+                    <BarChart width={300} height={200} data={comp.config.data}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Bar dataKey="value" fill="#8884d8" />
+                    </BarChart>
+                  )}
+                  {comp.config.type === "line" && (
+                    <LineChart width={300} height={200} data={comp.config.data}>
+                      <CartesianGrid strokeDasharray="3 3" />
+                      <XAxis dataKey="label" />
+                      <YAxis />
+                      <Tooltip />
+                      <Line type="monotone" dataKey="value" stroke="#8884d8" />
+                    </LineChart>
+                  )}
+                </div>
               </>
             )}
           </div>
         </div>
       ))}
 
+      <button onClick={submitLayout}>Submit/Save Layout</button>
+      <button
+        onClick={() => {
+          setLayoutName("");
+          setComponents([]);
+          setEditMode(false);
+          setMessage("");
+        }}
+      >
+        New Layout
+      </button>
 
     </div>
   );
