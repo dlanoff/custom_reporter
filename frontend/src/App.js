@@ -1,7 +1,46 @@
+// App.js  (split‑screen Material‑UI version)
 import React, { useState, useEffect } from "react";
-import { BarChart, Bar, LineChart, Line, XAxis, YAxis, Tooltip, CartesianGrid, ResponsiveContainer } from "recharts";
+import {
+  Box,
+  Container,
+  Typography,
+  TextField,
+  Button,
+  Stack,
+  Paper,
+  Table,
+  TableHead,
+  TableRow,
+  TableCell,
+  TableBody,
+  IconButton,
+  MenuItem,
+  Divider,
+  Grid,
+} from "@mui/material";
+import {
+  ArrowUpward,
+  ArrowDownward,
+  Delete as DeleteIcon,
+  Edit as EditIcon,
+  Save as SaveIcon,
+  Add as AddIcon,
+  Refresh as RefreshIcon,
+  NoteAdd as NewIcon,
+} from "@mui/icons-material";
+import {
+  BarChart,
+  Bar,
+  LineChart,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
-function App() {
+export default function App() {
+  // ─── state ────────────────────────────────────────────────────────────────
   const [layoutName, setLayoutName] = useState("");
   const [blockText, setBlockText] = useState("");
   const [imageFile, setImageFile] = useState(null);
@@ -14,398 +53,492 @@ function App() {
   const [graphValues, setGraphValues] = useState("");
   const [editMode, setEditMode] = useState(false);
   const [availableLayouts, setAvailableLayouts] = useState([]);
+  const [originalName, setOriginalName] = useState("")
 
-  const payload = {
-    name: layoutName,
-    components: components.map((c, i) => ({ ...c, position: i })),
+
+  // ─── helpers ──────────────────────────────────────────────────────────────
+  const updateComponent = (i, cfg) => {
+    const next = [...components];
+    next[i].config = cfg;
+    setComponents(next);
+  };
+  const moveComponent = (i, dir) => {
+    const j = i + dir;
+    if (j < 0 || j >= components.length) return;
+    const next = [...components];
+    [next[i], next[j]] = [next[j], next[i]];
+    setComponents(next);
+  };
+  const deleteComponent = (index) => {
+    const updated = components.filter((_, i) => i !== index);
+    setComponents(updated);
+  };
+  const resetBuilder = () => {
+    setLayoutName("");
+    setComponents([]);
+    setEditMode(false);
+    setMessage("");
+  };
+
+  // ─── fetch saved layouts ─────────────────────────────────────────────
+  const loadLayouts = () => {
+    fetch("http://localhost:8000/layouts")
+      .then(r => r.json())
+      .then(setAvailableLayouts);
   };
 
   useEffect(() => {
-    fetch("http://localhost:8000/layouts")
-      .then(res => res.json())
-      .then(setAvailableLayouts);
+    loadLayouts();
   }, []);
 
-  const updateComponent = (index, newConfig) => {
-    const updated = [...components];
-    updated[index].config = newConfig;
-    setComponents(updated);
-  };
-
-  const moveComponent = (index, direction) => {
-    const newIndex = index + direction;
-    if (newIndex < 0 || newIndex >= components.length) return;
-    const updated = [...components];
-    [updated[index], updated[newIndex]] = [updated[newIndex], updated[index]];
-    setComponents(updated);
-  };
-
-
+  // ─── add‑block actions (text / image / table / graph) ─────────────────────
   const addTextBlock = () => {
-    const newBlock = {
-      type: "text",
-      position: components.length,
-      config: { data: blockText || "Default text block" },
-    };
-    setComponents([...components, newBlock]);
+    if (!blockText.trim()) return;
+    setComponents((c) => [
+      ...c,
+      { type: "text", position: c.length, config: { data: blockText } },
+    ]);
     setBlockText("");
   };
-
-  const handleImageUpload = (e) => {
-    const file = e.target.files[0];
-    setImageFile(file);
-  };
-
+  const handleImageUpload = (e) => setImageFile(e.target.files[0]);
   const addImageBlock = () => {
     if (!imageFile) return;
-
     const reader = new FileReader();
-    reader.onloadend = () => {
-      const newBlock = {
-        type: "image",
-        position: components.length,
-        config: { data: reader.result }, // base64 string
-      };
-      setComponents([...components, newBlock]);
-      setImageFile(null);
-    };
+    reader.onloadend = () =>
+      setComponents((c) => [
+        ...c,
+        { type: "image", position: c.length, config: { data: reader.result } },
+      ]);
     reader.readAsDataURL(imageFile);
+    setImageFile(null);
   };
-
   const addTableBlock = () => {
-    const headers = tableHeaders.split(",").map(h => h.trim());
+    const headers = tableHeaders.split(",").map((h) => h.trim());
     const rows = tableRows
       .split("\n")
-      .map(line => line.split(",").map(cell => cell.trim()));
-
-    const newBlock = {
-      type: "table",
-      position: components.length,
-      config: { headers, rows },
-    };
-
-    setComponents([...components, newBlock]);
+      .filter(Boolean)
+      .map((l) => l.split(",").map((c) => c.trim()));
+    if (!headers.length || !rows.length) return;
+    setComponents((c) => [
+      ...c,
+      { type: "table", position: c.length, config: { headers, rows } },
+    ]);
     setTableHeaders("");
     setTableRows("");
   };
+  const addGraphBlock = () => {
+    const labels = graphLabels.split(",").map((l) => l.trim());
+    const values = graphValues.split(",").map((v) => parseFloat(v));
+    if (!labels.length || !values.length) return;
+    const data = labels.map((label, i) => ({ label, value: values[i] || 0 }));
+    setComponents((c) => [
+      ...c,
+      { type: "graph", position: c.length, config: { type: graphType, data } },
+    ]);
+    setGraphLabels("");
+    setGraphValues("");
+  };
 
+  // ─── persistence ──────────────────────────────────────────────────────────
   const submitLayout = async () => {
+    const isNew = !editMode || layoutName !== originalName;
     const payload = {
       name: layoutName,
       components: components.map((c, i) => ({ ...c, position: i })),
     };
 
-    const url = editMode
-      ? `http://localhost:8000/layouts/${layoutName}`
-      : `http://localhost:8000/layouts/`;
-
-    const response = await fetch(url, {
-      method: editMode ? "PUT" : "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(payload),
-    });
+    const response = await fetch(
+      isNew
+        ? "http://localhost:8000/layouts/"
+        : `http://localhost:8000/layouts/${layoutName}`,
+      {
+        method: isNew ? "POST" : "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
 
     const data = await response.json();
     setMessage(response.ok ? "Layout saved!" : `Error: ${data.detail}`);
+
+    if (response.ok) {
+      setEditMode(true);
+      setOriginalName(layoutName); // track new name
+      loadLayouts()
+    }
   };
   const randomizeLayout = async () => {
-    const res = await fetch("http://localhost:8000/sample-layout");
-    const layout = await res.json();
-    setLayoutName(layout.name);
-    setComponents(layout.components);
+    const r = await fetch("http://localhost:8000/sample-layout");
+    const l = await r.json();
+    setLayoutName(l.name);
+    setComponents(l.components);
     setEditMode(false);
   };
 
+  // ─── UI ───────────────────────────────────────────────────────────────────
   return (
-    <div style={{ padding: "1rem" }}>
-      <h1>Report Builder</h1>
+    <Container maxWidth="xl" sx={{ py: 4 }}>
+      {/* header */}
       {layoutName && (
-        <h2 style={{ marginTop: "0.5rem", color: "#555" }}>
-          Editing: <span style={{ color: "#000" }}>{layoutName}</span>
-        </h2>
+        <Box textAlign="center" sx={{ mb: 3 }}>
+          <Typography variant="h4">Editing Layout:</Typography>
+          <Typography variant="h4" color="primary">
+            {layoutName}
+          </Typography>
+          <Button
+            variant="outlined"
+            href={`/view/${encodeURIComponent(layoutName)}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            sx={{ mt: 1 }}
+          >
+            View Live
+          </Button>
+          <Button
+            variant="outlined"
+            onClick={submitLayout}
+            sx={{ mt: 1 }}
+          >
+            Save
+          </Button>
+        </Box>
+
       )}
-      <h4>Saved Layouts</h4>
-      <div style={{ maxHeight: "150px", overflowY: "auto", border: "1px solid #ccc", padding: "0.5rem" }}>
-        {availableLayouts.map((name, i) => (
-          <div key={i} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "0.25rem 0" }}>
-            <span
-              style={{ cursor: "pointer", textDecoration: "underline" }}
-              title="Click to load for editing"
-              onClick={async () => {
-                const res = await fetch(`http://localhost:8000/layouts/${name}`);
-                const data = await res.json();
-                setLayoutName(data.name);
-                setComponents(data.components);
-                setEditMode(true);
-              }}
+
+      <Divider sx={{ mb: 3 }} />
+
+      {/* split screen */}
+      <Grid container spacing={4}>
+        {/* ─── left: controls ─────────────────────────────────────────────── */}
+        <Grid item xs={12} md={5} lg={4}>
+          {/* Saved layouts */}
+          <Paper variant="outlined" sx={{ p: 2, mb: 3, maxHeight: 180, overflow: "auto" }}>
+            <Typography variant="subtitle1">Saved Layouts</Typography>
+            {availableLayouts.map((name) => (
+              <Stack
+                key={name}
+                direction="row"
+                alignItems="center"
+                justifyContent="space-between"
+                sx={{ py: 0.5 }}
+              >
+                <Typography
+                  sx={{ cursor: "pointer", textDecoration: "underline" }}
+                  onClick={async () => {
+                    const r = await fetch(`http://localhost:8000/layouts/${name}`);
+                    const d = await r.json();
+                    setLayoutName(d.name);
+                    setComponents(d.components);
+                    setEditMode(true);
+                  }}
+                >
+                  {name}
+                </Typography>
+                <Box>
+                  <IconButton size="small" onClick={async () => {
+                    const r = await fetch(`http://localhost:8000/layouts/${name}`);
+                    const d = await r.json();
+                    setLayoutName(d.name);
+                    setComponents(d.components);
+                    setEditMode(true);
+                  }}>
+                    <EditIcon fontSize="small" />
+                  </IconButton>
+                  <IconButton size="small" color="error" onClick={async () => {
+                    if (!window.confirm(`Delete layout "${name}"?`)) return;
+                    await fetch(`http://localhost:8000/layouts/${name}`, { method: "DELETE" });
+                    setAvailableLayouts((p) => p.filter((n) => n !== name));
+                    if (layoutName === name) resetBuilder();
+                  }}>
+                    <DeleteIcon fontSize="small" />
+                  </IconButton>
+                </Box>
+              </Stack>
+            ))}
+          </Paper>
+
+          {/* meta + quick actions */}
+          <Stack direction={{ xs: "column", sm: "row" }} spacing={1} sx={{ mb: 3 }}>
+            <TextField
+              label="Layout name"
+              value={layoutName}
+              onChange={(e) => setLayoutName(e.target.value)}
+              fullWidth
+            />
+            <Button variant="contained" startIcon={<SaveIcon />} onClick={submitLayout}>
+              Save
+            </Button>
+            <Button variant="outlined" startIcon={<RefreshIcon />} onClick={randomizeLayout}>
+              Sample
+            </Button>
+            <Button variant="outlined" startIcon={<NewIcon />} onClick={resetBuilder}>
+              New
+            </Button>
+          </Stack>
+
+          {/* add‑block controls */}
+          <Paper variant="outlined" sx={{ p: 2 }}>
+            <Typography variant="subtitle1" gutterBottom>
+              Add Blocks
+            </Typography>
+
+            {/* text */}
+            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+              <TextField
+                label="Text"
+                value={blockText}
+                onChange={(e) => setBlockText(e.target.value)}
+                fullWidth
+              />
+              <Button variant="contained" startIcon={<AddIcon />} onClick={addTextBlock}>
+                Text
+              </Button>
+            </Stack>
+
+            {/* image */}
+            <Stack direction="row" spacing={1} sx={{ mb: 2 }}>
+              <Button variant="outlined" component="label">
+                Upload Image
+                <input type="file" accept="image/*" hidden onChange={handleImageUpload} />
+              </Button>
+              <Button
+                variant="contained"
+                startIcon={<AddIcon />}
+                disabled={!imageFile}
+                onClick={addImageBlock}
+              >
+                Image
+              </Button>
+            </Stack>
+
+            {/* table */}
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2">Table</Typography>
+            <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+              <TextField
+                label="Headers"
+                value={tableHeaders}
+                onChange={(e) => setTableHeaders(e.target.value)}
+                fullWidth
+              />
+            </Stack>
+            <TextField
+              label="Rows (CSV, one per line)"
+              multiline
+              rows={3}
+              value={tableRows}
+              onChange={(e) => setTableRows(e.target.value)}
+              fullWidth
+              sx={{ mb: 1 }}
+            />
+            <Button variant="contained" fullWidth onClick={addTableBlock}>
+              Add Table
+            </Button>
+
+            {/* graph */}
+            <Divider sx={{ my: 2 }} />
+            <Typography variant="subtitle2">Graph</Typography>
+            <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+              <TextField
+                select
+                label="Type"
+                value={graphType}
+                onChange={(e) => setGraphType(e.target.value)}
+                sx={{ width: 110 }}
+              >
+                <MenuItem value="bar">Bar</MenuItem>
+                <MenuItem value="line">Line</MenuItem>
+              </TextField>
+              <TextField
+                label="Labels"
+                value={graphLabels}
+                onChange={(e) => setGraphLabels(e.target.value)}
+                fullWidth
+              />
+              <TextField
+                label="Values"
+                value={graphValues}
+                onChange={(e) => setGraphValues(e.target.value)}
+                fullWidth
+              />
+            </Stack>
+            <Button variant="contained" fullWidth onClick={addGraphBlock}>
+              Add Graph
+            </Button>
+          </Paper>
+        </Grid>
+        <Divider
+          orientation="vertical"
+          flexItem
+          sx={{ borderRightWidth: 3, mx: 2, bgcolor: "grey.400" }}
+        />
+        {/* ─── right: live preview ─────────────────────────────────────────── */}
+        <Grid item xs={12} md={7} lg={8}>
+          <Typography variant="h5" gutterBottom>
+            Live Preview
+          </Typography>
+
+          {components.map((comp, i) => (
+            <Paper
+              key={i}
+              variant="outlined"
+              sx={{ mb: 2, p: 2, display: "flex", gap: 2 }}
             >
-              {name}
-            </span>
-            <div style={{ display: "flex", gap: "0.5rem" }}>
-              <span
-                title="Edit"
-                style={{ cursor: "pointer" }}
-                onClick={async () => {
-                  const res = await fetch(`http://localhost:8000/layouts/${name}`);
-                  const data = await res.json();
-                  setLayoutName(data.name);
-                  setComponents(data.components);
-                  setEditMode(true);
-                }}
-              >
-                ✏️
-              </span>
-              <span
-                title="Delete"
-                style={{ cursor: "pointer", color: "red" }}
-                onClick={async () => {
-                  if (!window.confirm(`Delete layout "${name}"?`)) return;
-                  await fetch(`http://localhost:8000/layouts/${name}`, { method: "DELETE" });
-                  setAvailableLayouts((prev) => prev.filter((n) => n !== name));
-                  if (layoutName === name) {
-                    setLayoutName("");
-                    setComponents([]);
-                    setEditMode(false);
-                  }
-                }}
-              >
-                ❌
-              </span>
-            </div>
-          </div>
-        ))}
-      </div>
-      <br /><br />
+              {/* reorder buttons */}
+              <Stack spacing={1} alignItems="center">
+                <IconButton onClick={() => moveComponent(i, -1)} size="small">
+                  <ArrowUpward fontSize="small" />
+                </IconButton>
+                <IconButton onClick={() => moveComponent(i, 1)} size="small">
+                  <ArrowDownward fontSize="small" />
+                </IconButton>
+                <IconButton onClick={() => deleteComponent(i)} size="small" color="error">
+                  <DeleteIcon fontSize="small" />
+                </IconButton>
+              </Stack>
 
-      <input
-        type="text"
-        placeholder="Layout name"
-        value={layoutName}
-        onChange={(e) => setLayoutName(e.target.value)}
-      />
-      <br /><br />
+              {/* block content */}
+              <Box sx={{ flexGrow: 1 }}>
+                {comp.type === "text" && (
+                  <TextField
+                    multiline
+                    fullWidth
+                    value={comp.config.data}
+                    onChange={(e) => updateComponent(i, { data: e.target.value })}
+                  />
+                )}
 
-      <input
-        type="text"
-        placeholder="Text block content"
-        value={blockText}
-        onChange={(e) => setBlockText(e.target.value)}
-      />
-      <button onClick={addTextBlock}>Add Text Block</button>
-      <br /><br />
+                {comp.type === "image" && (
+                  <Box>
+                    <img src={comp.config.data} alt="block" style={{ maxWidth: "100%" }} />
+                    <Typography variant="caption" color="text.secondary">
+                      Replace by deleting &amp; re‑adding
+                    </Typography>
+                  </Box>
+                )}
 
-      <input type="file" accept="image/*" onChange={handleImageUpload} />
-      <button onClick={addImageBlock}>Add Image Block</button>
-      <br /><br />
+                {comp.type === "table" && (
+                  <>
+                    <Table size="small" sx={{ mb: 1 }}>
+                      <TableHead>
+                        <TableRow>
+                          {comp.config.headers.map((h) => (
+                            <TableCell key={h}>{h}</TableCell>
+                          ))}
+                        </TableRow>
+                      </TableHead>
+                      <TableBody>
+                        {comp.config.rows.map((row, ri) => (
+                          <TableRow key={ri}>
+                            {row.map((cell, ci) => (
+                              <TableCell key={ci}>{cell}</TableCell>
+                            ))}
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                    <Stack direction="row" spacing={1}>
+                      <TextField
+                        label="Headers"
+                        defaultValue={comp.config.headers.join(",")}
+                        onChange={(e) =>
+                          updateComponent(i, {
+                            ...comp.config,
+                            headers: e.target.value.split(",").map((s) => s.trim()),
+                          })
+                        }
+                        fullWidth
+                      />
+                      <TextField
+                        label="Rows"
+                        defaultValue={comp.config.rows.map((r) => r.join(",")).join("\n")}
+                        multiline
+                        rows={3}
+                        onBlur={(e) =>
+                          updateComponent(i, {
+                            ...comp.config,
+                            rows: e.target.value
+                              .split("\n")
+                              .map((l) => l.split(",").map((s) => s.trim())),
+                          })
+                        }
+                        fullWidth
+                      />
+                    </Stack>
+                  </>
+                )}
 
-      <h4>Add Table Block</h4>
-      <input
-        type="text"
-        placeholder="Headers (comma-separated)"
-        value={tableHeaders}
-        onChange={(e) => setTableHeaders(e.target.value)}
-      />
-      <br />
-      <textarea
-        placeholder="Rows (comma-separated, one row per line)"
-        value={tableRows}
-        onChange={(e) => setTableRows(e.target.value)}
-        rows={4}
-        cols={40}
-      />
-      <br />
-      <button onClick={addTableBlock}>Add Table Block</button>
+                {comp.type === "graph" && (
+                  <>
+                    <Stack direction="row" spacing={1} sx={{ mb: 1 }}>
+                      <TextField
+                        label="Labels"
+                        defaultValue={comp.config.data.map((d) => d.label).join(",")}
+                        onBlur={(e) => {
+                          const labels = e.target.value.split(",").map((s) => s.trim());
+                          const values = comp.config.data.map((d) => d.value);
+                          updateComponent(i, {
+                            ...comp.config,
+                            data: labels.map((l, idx) => ({
+                              label: l,
+                              value: values[idx] || 0,
+                            })),
+                          });
+                        }}
+                        fullWidth
+                      />
+                      <TextField
+                        label="Values"
+                        defaultValue={comp.config.data.map((d) => d.value).join(",")}
+                        onBlur={(e) => {
+                          const values = e.target.value.split(",").map((v) => parseFloat(v));
+                          const labels = comp.config.data.map((d) => d.label);
+                          updateComponent(i, {
+                            ...comp.config,
+                            data: labels.map((l, idx) => ({
+                              label: l,
+                              value: values[idx] || 0,
+                            })),
+                          });
+                        }}
+                        fullWidth
+                      />
+                    </Stack>
+                    <Box sx={{ width: "100%", maxWidth: 480, height: 260 }}>
+                      {comp.config.type === "bar" ? (
+                        <BarChart width={480} height={260} data={comp.config.data}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="label" />
+                          <YAxis />
+                          <Tooltip />
+                          <Bar dataKey="value" fill="#8884d8" />
+                        </BarChart>
+                      ) : (
+                        <LineChart width={480} height={260} data={comp.config.data}>
+                          <CartesianGrid strokeDasharray="3 3" />
+                          <XAxis dataKey="label" />
+                          <YAxis />
+                          <Tooltip />
+                          <Line type="monotone" dataKey="value" stroke="#8884d8" />
+                        </LineChart>
+                      )}
+                    </Box>
+                  </>
+                )}
+              </Box>
+            </Paper>
+          ))}
 
-
-
-      <h4>Add Graph Block</h4>
-      <select value={graphType} onChange={(e) => setGraphType(e.target.value)}>
-        <option value="bar">Bar</option>
-        <option value="line">Line</option>
-      </select>
-      <br />
-      <input
-        type="text"
-        placeholder="Labels (comma-separated)"
-        value={graphLabels}
-        onChange={(e) => setGraphLabels(e.target.value)}
-      />
-      <br />
-      <input
-        type="text"
-        placeholder="Values (comma-separated)"
-        value={graphValues}
-        onChange={(e) => setGraphValues(e.target.value)}
-      />
-      <br />
-
-      <button
-        onClick={() => {
-          const labels = graphLabels.split(",").map((x) => x.trim());
-          const values = graphValues.split(",").map((x) => parseFloat(x));
-          const data = labels.map((label, i) => ({ label, value: values[i] }));
-
-          const newBlock = {
-            type: "graph",
-            position: components.length,
-            config: {
-              type: graphType,
-              data,
-            },
-          };
-
-          setComponents([...components, newBlock]);
-          setGraphLabels("");
-          setGraphValues("");
-        }}
-      >
-        Add Graph Block
-      </button>
-
-      <button onClick={submitLayout}>Submit/Save Layout</button>
-      <button onClick={randomizeLayout}>Load Random Sample Data</button>
-
-      <p style={{ color: "green" }}>{message}</p>
-
-      <h3>Preview</h3>
-
-
-      {components.map((comp, i) => (
-        <div key={i} style={{ border: "1px solid #ccc", padding: "0.5rem", marginBottom: "1rem", display: "flex" }}>
-          <div style={{ display: "flex", flexDirection: "column", alignItems: "center", marginRight: "1rem" }}>
-            <button onClick={() => moveComponent(i, -1)}>↑</button>
-            <button onClick={() => moveComponent(i, 1)}>↓</button>
-          </div>
-
-          <div style={{ flex: 1 }}>
-            <strong>{comp.type}</strong>
-
-            {comp.type === "text" && (
-              <>
-                <textarea
-                  value={comp.config.data}
-                  onChange={(e) => updateComponent(i, { data: e.target.value })}
-                />
-              </>
-            )}
-
-            {comp.type === "image" && (
-              <>
-                <img src={comp.config.data} alt="block" style={{ maxWidth: "200px" }} />
-                <p><em>To replace, delete and re-add.</em></p>
-              </>
-            )}
-
-            {comp.type === "table" && (
-              <>
-                <table border="1" cellPadding="5">
-                  <thead>
-                    <tr>{comp.config.headers.map((h, i) => <th key={i}>{h}</th>)}</tr>
-                  </thead>
-                  <tbody>
-                    {comp.config.rows.map((row, ri) => (
-                      <tr key={ri}>
-                        {row.map((cell, ci) => <td key={ci}>{cell}</td>)}
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-                <p>Edit:</p>
-                <input
-                  type="text"
-                  placeholder="New headers"
-                  defaultValue={comp.config.headers.join(",")}
-                  onChange={(e) =>
-                    updateComponent(i, {
-                      ...comp.config,
-                      headers: e.target.value.split(",").map((s) => s.trim()),
-                    })
-                  }
-                />
-                <br />
-                <textarea
-                  rows={3}
-                  defaultValue={comp.config.rows.map((r) => r.join(",")).join("\n")}
-                  onBlur={(e) =>
-                    updateComponent(i, {
-                      ...comp.config,
-                      rows: e.target.value.split("\n").map((line) =>
-                        line.split(",").map((s) => s.trim())
-                      ),
-                    })
-                  }
-                />
-              </>
-            )}
-
-            {comp.type === "graph" && (
-              <>
-                <p>Edit:</p>
-                <input
-                  type="text"
-                  defaultValue={comp.config.data.map((d) => d.label).join(",")}
-                  onBlur={(e) => {
-                    const labels = e.target.value.split(",").map((x) => x.trim());
-                    const values = comp.config.data.map((d) => d.value);
-                    updateComponent(i, {
-                      ...comp.config,
-                      data: labels.map((l, idx) => ({ label: l, value: values[idx] || 0 })),
-                    });
-                  }}
-                />
-                <input
-                  type="text"
-                  defaultValue={comp.config.data.map((d) => d.value).join(",")}
-                  onBlur={(e) => {
-                    const values = e.target.value.split(",").map((x) => parseFloat(x));
-                    const labels = comp.config.data.map((d) => d.label);
-                    updateComponent(i, {
-                      ...comp.config,
-                      data: labels.map((l, idx) => ({ label: l, value: values[idx] || 0 })),
-                    });
-                  }}
-                />
-
-                <div style={{ width: 300, height: 200, marginTop: "1rem" }}>
-                  {comp.config.type === "bar" && (
-                    <BarChart width={300} height={200} data={comp.config.data}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Bar dataKey="value" fill="#8884d8" />
-                    </BarChart>
-                  )}
-                  {comp.config.type === "line" && (
-                    <LineChart width={300} height={200} data={comp.config.data}>
-                      <CartesianGrid strokeDasharray="3 3" />
-                      <XAxis dataKey="label" />
-                      <YAxis />
-                      <Tooltip />
-                      <Line type="monotone" dataKey="value" stroke="#8884d8" />
-                    </LineChart>
-                  )}
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      ))}
-
-      <button onClick={submitLayout}>Submit/Save Layout</button>
-      <button
-        onClick={() => {
-          setLayoutName("");
-          setComponents([]);
-          setEditMode(false);
-          setMessage("");
-        }}
-      >
-        New Layout
-      </button>
-
-    </div>
+          {message && (
+            <Typography
+              sx={{ mt: 2 }}
+              color={message.startsWith("Error") ? "error" : "success.main"}
+            >
+              {message}
+            </Typography>
+          )}
+        </Grid>
+      </Grid>
+    </Container>
   );
 }
-
-export default App;
